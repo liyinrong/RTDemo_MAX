@@ -41,100 +41,180 @@
 #include <stdio.h>
 #include "mxc.h"
 #include "cnn.h"
-#include "sampledata.h"
-#include "sampleoutput.h"
+#include "led.h"
+#include "board.h"
+#include "pb.h"
+#include "gpio.h"
+#include "uart.h"
+
+mxc_uart_req_t uart0_trans_req;
+
+uint8_t RecvBuffer[300];
+uint8_t RecvBufferPTR = 0U;
+uint8_t WorkMode = 0U;		//0: Off	1: From host	2: From sensor
+uint8_t SwitchRequest = 0U;
+//uint8_t AccGyrRequest = 0U;
+//uint8_t MagRequest = 0U;
+uint8_t HostRequest = 0U;
+uint8_t NewDataFetched = 0U;
+uint8_t FallDetected = 0U;
 
 volatile uint32_t cnn_time; // Stopwatch
 
-void fail(void)
-{
-  printf("\n*** FAIL ***\n\n");
-  while (1);
-}
-
-// 6-channel 50x1 data input (300 bytes total / 50 bytes per channel):
-// HWC 50x1, channels 0 to 3
-static const uint32_t input_0[] = SAMPLE_INPUT_0;
-
-// HWC 50x1, channels 4 to 5
-static const uint32_t input_4[] = SAMPLE_INPUT_4;
+void Peripheral_Init(void);
+void Peripheral_Reconfig(void);
+void DataFetchHandle(void);
+void ModeSwitchHandle(void);
+void UART0_Handler(void);
+void UARTRxCallback(mxc_uart_req_t *req, int result);
+void GPIO_ISR(void *cbdata);
 
 void load_input(void)
 {
   // This function loads the sample data input -- replace with actual data
 
-  memcpy32((uint32_t *) 0x50400000, input_0, 50);
-  memcpy32((uint32_t *) 0x50408000, input_4, 50);
-}
-
-// Expected output of layer 23 (fc) for RTDemo_MAX_alpha given the sample input (known-answer test)
-// Delete this function for production code
-static const uint32_t sample_output[] = SAMPLE_OUTPUT;
-int check_output(void)
-{
-  int i;
-  uint32_t mask, len;
-  volatile uint32_t *addr;
-  const uint32_t *ptr = sample_output;
-
-  while ((addr = (volatile uint32_t *) *ptr++) != 0) {
-    mask = *ptr++;
-    len = *ptr++;
-    for (i = 0; i < len; i++)
-      if ((*addr++ & mask) != *ptr++) {
-        printf("Data mismatch (%d/%d) at address 0x%08x: Expected 0x%08x, read 0x%08x.\n",
-               i + 1, len, addr - 1, *(ptr - 1), *(addr - 1) & mask);
-        return CNN_FAIL;
-      }
-  }
-
-  return CNN_OK;
+	memcpy32((uint32_t *) 0x50400000, (uint32_t *) RecvBuffer, 50);
+	memcpy32((uint32_t *) 0x50408000, (uint32_t *) RecvBuffer + 50, 25);
 }
 
 static int32_t ml_data32[(CNN_NUM_OUTPUTS + 3) / 4];
 
 int main(void)
 {
-  MXC_ICC_Enable(MXC_ICC0); // Enable cache
+	MXC_ICC_Enable(MXC_ICC0); // Enable cache
 
-  // Switch to 100 MHz clock
-  MXC_SYS_Clock_Select(MXC_SYS_CLOCK_IPO);
-  SystemCoreClockUpdate();
+	// Switch to 100 MHz clock
+	MXC_SYS_Clock_Select(MXC_SYS_CLOCK_IPO);
+	SystemCoreClockUpdate();
 
-  printf("Waiting...\n");
+	Peripheral_Init();
+	Peripheral_Reconfig();
+	printf("リンクスタート！\r\n");
 
-  // DO NOT DELETE THIS LINE:
-  MXC_Delay(SEC(2)); // Let debugger interrupt if needed
+	while (1)
+	{
+		DataFetchHandle();
+		if(NewDataFetched)
+		{
+			load_input(); // Load data input
+			cnn_start(); // Start CNN processing
+			while (cnn_time == 0)
+				MXC_LP_EnterSleepMode(); // Wait for CNN
+			cnn_unload((uint32_t *) ml_data32);
 
-  // Enable peripheral, enable CNN interrupt, turn on CNN clock
-  // CNN clock: APB (50 MHz) div 1
-  cnn_enable(MXC_S_GCR_PCLKDIV_CNNCLKSEL_PCLK, MXC_S_GCR_PCLKDIV_CNNCLKDIV_DIV1);
+			#ifdef CNN_INFERENCE_TIMER
+				printf("Inference completed, output=[%d, %d], elapsed time: %uus.\r\n", *(int8_t*)ml_data32, *((int8_t*)ml_data32+1), cnn_time);
+			#elif
+		  		printf("Inference completed, output=[%d, %d].\r\n", *(int8_t*)ml_data32, *((int8_t*)ml_data32+1));
+		  	#endif
 
-  printf("\n*** CNN Inference Test RTDemo_MAX_alpha ***\n");
+		  	NewDataFetched = 0U;
+		}
+		ModeSwitchHandle();
+	}
+}
 
-  cnn_init(); // Bring state machine into consistent state
-  cnn_load_weights(); // Load kernels
-  cnn_load_bias();
-  cnn_configure(); // Configure state machine
-  load_input(); // Load data input
-  cnn_start(); // Start CNN processing
+void Peripheral_Init(void)
+{
+    MXC_GPIO_RegisterCallback(&pb_pin[0], GPIO_ISR, (void*)&pb_pin[0]);
+    MXC_GPIO_IntConfig(&pb_pin[0], MXC_GPIO_INT_FALLING);
+    MXC_GPIO_EnableInt(pb_pin[0].port, pb_pin[0].mask);
+    MXC_NVIC_SetVector(MXC_UART_GET_IRQ(0), UART0_Handler);
+    NVIC_EnableIRQ(MXC_UART_GET_IRQ(0));
+    NVIC_EnableIRQ(MXC_GPIO_GET_IRQ(MXC_GPIO_GET_IDX(pb_pin[0].port)));
+}
 
-  while (cnn_time == 0)
-    MXC_LP_EnterSleepMode(); // Wait for CNN
+void Peripheral_Reconfig(void)
+{
+	MXC_UART_AbortTransmission(MXC_UART_GET_UART(0));
+	if(WorkMode == 1U)
+	{
+		// Enable peripheral, enable CNN interrupt, turn on CNN clock
+		// CNN clock: APB (50 MHz) div 1
+		cnn_enable(MXC_S_GCR_PCLKDIV_CNNCLKSEL_PCLK, MXC_S_GCR_PCLKDIV_CNNCLKDIV_DIV1);
+		cnn_init(); // Bring state machine into consistent state
+		cnn_load_weights(); // Load kernels
+		cnn_load_bias();
+		cnn_configure(); // Configure state machine
 
-  if (check_output() != CNN_OK) fail();
-  cnn_unload((uint32_t *) ml_data32);
+		uart0_trans_req.uart = MXC_UART_GET_UART(0);
+		uart0_trans_req.rxData = (uint8_t*)RecvBuffer;
+		uart0_trans_req.rxLen = 9;
+		uart0_trans_req.txLen = 0;
+		uart0_trans_req.callback = UARTRxCallback;
+		MXC_UART_TransactionAsync(&uart0_trans_req);
+		LED_On(LED1);
+	}
+	else
+	{
+		cnn_disable(); // Shut down CNN clock, disable peripheral
+		LED_Off(LED1);
+	}
 
-  printf("\n*** PASS ***\n\n");
+}
 
-#ifdef CNN_INFERENCE_TIMER
-  printf("Approximate inference time: %u us\n\n", cnn_time);
-#endif
+void DataFetchHandle(void)
+{
+	if(WorkMode == 1U)
+	{
+		if(HostRequest)
+		{
+			printf("Echo\r\n");
+			uart0_trans_req.rxLen = sizeof(RecvBuffer);
+			if(MXC_UART_Transaction(&uart0_trans_req) == E_NO_ERROR)
+			{
+				printf("Data received.\r\n");
+				NewDataFetched = 1U;
+			}
+			else
+			{
+				printf("Transmission failed.\r\n");
+			}
+			HostRequest = 0U;
+			uart0_trans_req.rxLen = 9;
+			MXC_UART_TransactionAsync(&uart0_trans_req);
+		}
+	}
+}
 
-  cnn_disable(); // Shut down CNN clock, disable peripheral
+void ModeSwitchHandle(void)
+{
+	if(SwitchRequest)
+	{
+		WorkMode = (WorkMode + 1U) % 2U;
+		Peripheral_Reconfig();
+		printf("Mode %u selected.\r\n", WorkMode);
+//		AccGyrRequest = 0U;
+//		MagRequest = 0U;
+		HostRequest = 0U;
+		RecvBufferPTR = 0U;
+		SwitchRequest = 0U;
+	}
+}
 
+void UART0_Handler(void)
+{
+    MXC_UART_AsyncHandler(MXC_UART_GET_UART(0));
+}
 
-  return 0;
+void UARTRxCallback(mxc_uart_req_t *req, int result)
+{
+	if(req == &uart0_trans_req)
+	{
+		if(WorkMode==1U && strstr((char*)RecvBuffer, "Connect"))
+		{
+			HostRequest = 1U;
+		}
+	}
+}
+
+void GPIO_ISR(void *cbdata)
+{
+	mxc_gpio_cfg_t *cfg = cbdata;
+	if(cfg == &pb_pin[0])
+	{
+		SwitchRequest = 1U;
+	}
 }
 
 /*
