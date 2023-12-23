@@ -49,7 +49,7 @@
 
 mxc_uart_req_t uart0_trans_req;
 
-uint8_t RecvBuffer[300];
+float RecvBuffer[1][50][6];
 uint8_t RecvBufferPTR = 0U;
 uint8_t WorkMode = 0U;		//0: Off	1: From host	2: From sensor
 uint8_t SwitchRequest = 0U;
@@ -72,9 +72,22 @@ void GPIO_ISR(void *cbdata);
 void load_input(void)
 {
   // This function loads the sample data input -- replace with actual data
-
-	memcpy32((uint32_t *) 0x50400000, (uint32_t *) RecvBuffer, 50);
-	memcpy32((uint32_t *) 0x50408000, (uint32_t *) RecvBuffer + 50, 25);
+	int8_t* ptr = (int8_t*)0x50400000;
+	for(uint8_t i=0; i<50; i++)
+	{
+		for(uint8_t j=0; j<4; j++)
+		{
+			*(ptr++) = (int8_t)RecvBuffer[0][i][j];
+		}
+	}
+	ptr = (int8_t*)0x50408000;
+	for(uint8_t i=0; i<50; i++)
+	{
+		for(uint8_t j=4; j<6; j++)
+		{
+			*(ptr++) = (int8_t)RecvBuffer[0][i][j];
+		}
+	}
 }
 
 static int32_t ml_data32[(CNN_NUM_OUTPUTS + 3) / 4];
