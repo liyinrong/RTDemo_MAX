@@ -51,7 +51,7 @@ typedef int16_t q15_t;
 
   RESOURCE USAGE
   Weight memory: 30,336 bytes out of 442,368 bytes total (6.9%)
-  Bias memory:   688 bytes out of 2,048 bytes total (33.6%)
+  Bias memory:   704 bytes out of 2,048 bytes total (34.4%)
 */
 
 /* Number of outputs for this network */

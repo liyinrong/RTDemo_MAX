@@ -72,21 +72,28 @@ void GPIO_ISR(void *cbdata);
 void load_input(void)
 {
   // This function loads the sample data input -- replace with actual data
-	int8_t* ptr = (int8_t*)0x50400000;
+	uint32_t* ptr = (uint32_t *)0x50400000;
+	uint32_t tmp = 0;
 	for(uint8_t i=0; i<50; i++)
 	{
-		for(uint8_t j=0; j<4; j++)
+		tmp = 0;
+		for(int8_t j=3; j>=0; j--)
 		{
-			*(ptr++) = (int8_t)RecvBuffer[0][i][j];
+			tmp = tmp << 8;
+			tmp |= (int8_t)RecvBuffer[0][i][j];
 		}
+		*(ptr++) = tmp;
 	}
-	ptr = (int8_t*)0x50408000;
+	ptr = (uint32_t *)0x50408000;
 	for(uint8_t i=0; i<50; i++)
 	{
-		for(uint8_t j=4; j<6; j++)
+		tmp = 0;
+		for(int8_t j=5; j>=4; j--)
 		{
-			*(ptr++) = (int8_t)RecvBuffer[0][i][j];
+			tmp = tmp << 8;
+			tmp |= (int8_t)RecvBuffer[0][i][j];
 		}
+		*(ptr++) = tmp;
 	}
 }
 
@@ -229,37 +236,3 @@ void GPIO_ISR(void *cbdata)
 		SwitchRequest = 1U;
 	}
 }
-
-/*
-  SUMMARY OF OPS
-  Hardware: 746,496 ops (720,384 macc; 19,968 comp; 6,144 add; 0 mul; 0 bitwise)
-    Layer 0 (conv1): 55,296 ops (55,296 macc; 0 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 1 (pool1): 3,072 ops (0 macc; 3,072 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 2 (convblk1_convr): 99,840 ops (98,304 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 3 (convblk1_conv1): 24,960 ops (24,576 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 4 (convblk1_conv2): 18,816 ops (18,432 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 5 (convblk1_conv3): 26,112 ops (24,576 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 6 (convblk1_resid): 1,536 ops (0 macc; 0 comp; 1,536 add; 0 mul; 0 bitwise)
-    Layer 7 (convblk2_convr): 99,840 ops (98,304 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 8 (convblk2_conv1): 24,960 ops (24,576 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 9 (convblk2_conv2): 18,816 ops (18,432 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 10 (convblk2_conv3): 26,112 ops (24,576 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 11 (convblk2_resid): 1,536 ops (0 macc; 0 comp; 1,536 add; 0 mul; 0 bitwise)
-    Layer 12 (convblk3_convr): 99,840 ops (98,304 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 13 (convblk3_conv1): 24,960 ops (24,576 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 14 (convblk3_conv2): 18,816 ops (18,432 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 15 (convblk3_conv3): 26,112 ops (24,576 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 16 (convblk3_resid): 1,536 ops (0 macc; 0 comp; 1,536 add; 0 mul; 0 bitwise)
-    Layer 17 (convblk4_convr): 99,840 ops (98,304 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 18 (convblk4_conv1): 24,960 ops (24,576 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 19 (convblk4_conv2): 18,816 ops (18,432 macc; 384 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 20 (convblk4_conv3): 26,112 ops (24,576 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 21 (convblk4_resid): 1,536 ops (0 macc; 0 comp; 1,536 add; 0 mul; 0 bitwise)
-    Layer 22 (pool2): 1,536 ops (0 macc; 1,536 comp; 0 add; 0 mul; 0 bitwise)
-    Layer 23 (fc): 1,536 ops (1,536 macc; 0 comp; 0 add; 0 mul; 0 bitwise)
-
-  RESOURCE USAGE
-  Weight memory: 30,336 bytes out of 442,368 bytes total (6.9%)
-  Bias memory:   688 bytes out of 2,048 bytes total (33.6%)
-*/
-
