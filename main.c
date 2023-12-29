@@ -49,8 +49,6 @@
 
 mxc_uart_req_t uart0_trans_req;
 
-float RecvBuffer[1][50][6];
-uint8_t RecvBufferPTR = 0U;
 uint8_t WorkMode = 0U;		//0: Off	1: From host	2: From sensor
 uint8_t SwitchRequest = 0U;
 //uint8_t AccGyrRequest = 0U;
@@ -58,6 +56,9 @@ uint8_t SwitchRequest = 0U;
 uint8_t HostRequest = 0U;
 uint8_t NewDataFetched = 0U;
 uint8_t FallDetected = 0U;
+
+int8_t RecvBuffer[1][50][6];
+uint8_t RecvBufferPTR = 0U;
 
 volatile uint32_t cnn_time; // Stopwatch
 
@@ -72,26 +73,26 @@ void GPIO_ISR(void *cbdata);
 void load_input(void)
 {
   // This function loads the sample data input -- replace with actual data
-	uint32_t* ptr = (uint32_t *)0x50400000;
-	uint32_t tmp = 0;
+	uint32_t* restrict ptr = (uint32_t *)0x50400000;
+	uint32_t tmp = 0U;
 	for(uint8_t i=0; i<50; i++)
 	{
-		tmp = 0;
+		tmp = 0U;
 		for(int8_t j=3; j>=0; j--)
 		{
 			tmp = tmp << 8;
-			tmp |= (int8_t)RecvBuffer[0][i][j];
+			tmp |= RecvBuffer[0][i][j];
 		}
 		*(ptr++) = tmp;
 	}
 	ptr = (uint32_t *)0x50408000;
 	for(uint8_t i=0; i<50; i++)
 	{
-		tmp = 0;
+		tmp = 0U;
 		for(int8_t j=5; j>=4; j--)
 		{
 			tmp = tmp << 8;
-			tmp |= (int8_t)RecvBuffer[0][i][j];
+			tmp |= RecvBuffer[0][i][j];
 		}
 		*(ptr++) = tmp;
 	}
