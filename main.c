@@ -73,7 +73,7 @@ void GPIO_ISR(void *cbdata);
 void load_input(void)
 {
   // This function loads the sample data input -- replace with actual data
-	uint32_t* restrict ptr = (uint32_t *)0x50400000;
+	uint32_t* ptr = (uint32_t *)0x50400000;
 	uint32_t tmp = 0U;
 	for(uint8_t i=0; i<50; i++)
 	{
@@ -81,7 +81,7 @@ void load_input(void)
 		for(int8_t j=3; j>=0; j--)
 		{
 			tmp = tmp << 8;
-			tmp |= RecvBuffer[0][i][j];
+			tmp |= (uint8_t)RecvBuffer[0][i][j];
 		}
 		*(ptr++) = tmp;
 	}
@@ -92,7 +92,7 @@ void load_input(void)
 		for(int8_t j=5; j>=4; j--)
 		{
 			tmp = tmp << 8;
-			tmp |= RecvBuffer[0][i][j];
+			tmp |= (uint8_t)RecvBuffer[0][i][j];
 		}
 		*(ptr++) = tmp;
 	}
